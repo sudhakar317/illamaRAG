@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS messages (
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     role       TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant')),
     content    TEXT NOT NULL,
+    -- JSON array of citations for an assistant reply, so the sources a user
+    -- saw are still there after a reload rather than being lost with the stream.
+    sources    TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -74,6 +77,14 @@ def init_db() -> None:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
         conn.executescript(SCHEMA)
+
+        # Migrate databases created before citations existed. CREATE TABLE IF
+        # NOT EXISTS leaves an older table untouched, so the column is added here.
+        columns = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}
+        if "sources" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN sources TEXT")
+            logger.info("Added messages.sources column to the existing database.")
+
         conn.commit()
     finally:
         conn.close()

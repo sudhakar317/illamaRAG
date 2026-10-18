@@ -35,17 +35,51 @@ def format_chatml(messages: list[dict], enable_thinking: bool = False) -> str:
     return "".join(parts)
 
 
+# Appended to the system prompt when retrieved context is present. Kept
+# separate so an ordinary chat is not burdened with instructions about sources.
+RAG_INSTRUCTIONS = (
+    "\n\nYou have been given extracts from the user's own documents. "
+    "Answer using those extracts, and cite them inline with their bracket "
+    "numbers, like [1] or [2]. "
+    "If the extracts do not contain the answer, say so plainly and do not "
+    "guess -- it is far better to say the documents do not cover something "
+    "than to invent it. You may still answer from general knowledge "
+    "afterwards, but say clearly that you are doing so."
+)
+
+
+def build_context_message(context: str, user_message: str) -> str:
+    """Place retrieved sources immediately before the question.
+
+    They go in the final user turn rather than the system prompt because a
+    model attends most reliably to what sits closest to the question; context
+    parked at the very top tends to be ignored once history grows.
+    """
+    return (
+        "<sources>\n"
+        f"{context}\n"
+        "</sources>\n\n"
+        f"Question: {user_message}"
+    )
+
+
 def build_messages(
     system_prompt: str,
     history: list[dict],
     user_message: str,
+    context: str | None = None,
 ) -> list[dict]:
     """Assemble the message list sent to the model.
 
-    This is the single seam where retrieved context will be injected when RAG is
-    added later -- routes, storage and client all stay unchanged.
+    This is the single seam where retrieved context is injected; routes,
+    storage and the client are unaffected by what happens here.
     """
     messages: list[dict] = []
+
+    if context:
+        system_prompt = (system_prompt or "") + RAG_INSTRUCTIONS
+        user_message = build_context_message(context, user_message)
+
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.extend({"role": m["role"], "content": m["content"]} for m in history)
@@ -60,6 +94,7 @@ def trim_to_budget(
     count_tokens: Callable[[str], int],
     budget: int,
     enable_thinking: bool = False,
+    context: str | None = None,
 ) -> tuple[str, int, int]:
     """Drop the oldest turns until the rendered prompt fits inside `budget`.
 
@@ -74,7 +109,7 @@ def trim_to_budget(
     dropped = 0
 
     while True:
-        messages = build_messages(system_prompt, kept, user_message)
+        messages = build_messages(system_prompt, kept, user_message, context)
         prompt = format_chatml(messages, enable_thinking)
         n_tokens = count_tokens(prompt)
 

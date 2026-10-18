@@ -4,8 +4,8 @@ A small, fully local chat application. A Qwen3.5-4B GGUF model runs on your own
 CPU through llama.cpp — no Ollama, no API keys, nothing leaves the machine.
 Conversations and sessions are stored in SQLite, so they survive a restart.
 
-This is **v1: the chat foundation**. Retrieval (RAG) and the agent loop are
-deliberately not here yet — see [Where RAG plugs in later](#where-rag-plugs-in-later).
+You can add your own PDFs, text files, HTML files and web links; answers are
+then grounded in them and cite their sources.
 
 ```
 ┌─────────────────┐        SSE         ┌──────────────────┐
@@ -30,20 +30,65 @@ deliberately not here yet — see [Where RAG plugs in later](#where-rag-plugs-in
 - **Stop** genuinely cancels generation and keeps the partial reply
 - Live model and memory status in the header
 - Reasoning blocks separated from the answer and shown collapsed
+- **Knowledge base**: add PDFs, TXT/Markdown, HTML files and URLs
+- **Hybrid retrieval**: vector search and BM25 keyword search, fused
+- **Citations**: inline markers plus source chips, persisted with the message
+- Model replies rendered as formatted text rather than raw Markdown
 
 ## Requirements
 
 - Python 3.11, Node 20+
 - A Qwen GGUF chat model at `models/Qwen3.5-4B-Q4_K_M.gguf`
+- An embedding model at `models/nomic-embed-text-v1.5.Q8_0.gguf` (139 MB)
 - About 3.5 GB of free RAM while running
+
+## Quick start
+
+With the models in `models/` (see below), one command sets up everything that
+is missing and runs both halves:
+
+```bash
+bash run.sh
+```
+
+On first run it creates `server/.venv`, installs the Python requirements (and
+tries the prebuilt llama-cpp-python wheel if it is not already installed),
+and runs `npm install` in `client/`. Later runs skip whatever is already done
+and only reinstall when `requirements.txt` or `package-lock.json` changes.
+It then starts the server, waits for it, starts the client, and prints the URL.
+Ctrl+C stops both.
+
+On Windows, from PowerShell or cmd, or by double-clicking it in Explorer:
+
+```powershell
+.\run.cmd
+```
+
+`run.cmd` finds Git Bash and runs `run.sh` through it. Typing plain `bash` in
+PowerShell usually starts WSL (`C:\Windows\system32\bash.exe`), not Git Bash.
+`run.sh` detects this and hands over to Git Bash itself, since the Windows
+venv and `node_modules` cannot run under Linux.
+
+`--setup` (for either script) does the setup only. `SERVER_PORT` and
+`CLIENT_PORT` override the default ports.
+
+The sections below cover the same steps by hand.
 
 ## Setup
 
 ### 1. The model
 
-Place your GGUF file at `models/Qwen3.5-4B-Q4_K_M.gguf`. The `models/` folder is
+Place your chat GGUF at `models/Qwen3.5-4B-Q4_K_M.gguf`. The `models/` folder is
 gitignored — multi-GB weights do not belong in git. To use a different path or
 file, set `MODEL_PATH` in `server/.env`.
+
+For retrieval you also need the embedding model (139 MB):
+
+```bash
+curl -L -o models/nomic-embed-text-v1.5.Q8_0.gguf https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf
+```
+
+Chat works without it; only uploads and retrieval need it.
 
 ### 2. Server
 
@@ -97,7 +142,8 @@ cd client && npm install
 
 ## Running
 
-Two terminals.
+`bash run.sh` does all of this in one terminal. To run the halves by hand, use
+two terminals.
 
 Server:
 
@@ -120,6 +166,66 @@ reply therefore takes an extra ~7 seconds while the weights load.
 > Avoid `uvicorn --reload` while working on model code: every reload reloads the
 > model too.
 
+## Using it from your phone
+
+The Vite dev server listens on every interface, so the app can be opened from a
+phone on the same Wi-Fi. It prints the LAN address on startup:
+
+```
+➜  Local:   http://localhost:5173/
+➜  Network: http://192.168.x.x:5173/
+```
+
+Open that Network URL on the phone.
+
+**Only port 5173 needs to be reachable.** The `/api` proxy runs inside the dev
+server, so the phone talks to Vite and Vite forwards to the backend over
+loopback. FastAPI stays bound to `127.0.0.1` and is never exposed — one open
+port instead of two.
+
+### Windows firewall
+
+Windows blocks the inbound connection by default, so the phone will simply time
+out until a rule exists. Both commands need an **Administrator** PowerShell.
+
+If the network is shown as Public (check with `Get-NetConnectionProfile`), set
+your own Wi-Fi to Private first — Public is the profile meant for untrusted
+networks like cafés and airports:
+
+```powershell
+Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private
+```
+
+Then allow the port, scoped to the Private profile only:
+
+```powershell
+New-NetFirewallRule -DisplayName "illamaRAG dev client (5173)" -Direction Inbound -LocalPort 5173 -Protocol TCP -Action Allow -Profile Private
+```
+
+To remove it later:
+
+```powershell
+Remove-NetFirewallRule -DisplayName "illamaRAG dev client (5173)"
+```
+
+### Before you expose it
+
+**There is no authentication.** Anyone on the same network who opens that URL
+can read every conversation and send new ones. That is fine on a home network
+you control; think twice on office, campus or shared Wi-Fi. Stopping the dev
+server closes the door, and deleting the firewall rule closes it properly.
+
+The phone is only a screen — the model still runs on this laptop, at the same
+few tokens per second, and the laptop must stay awake.
+
+### On the phone specifically
+
+- The chat list becomes a slide-out drawer behind the ☰ button
+- Enter inserts a newline and the Send button sends, since phone keyboards have
+  no practical Shift+Enter
+- Layout accounts for notches and home indicators, and uses `dvh` so the
+  composer is not hidden behind the browser's toolbar
+
 ## Checking it works
 
 Two scripts, both runnable on their own:
@@ -132,10 +238,19 @@ cd server && .venv/Scripts/python.exe scripts/smoke_test.py
 cd server && .venv/Scripts/python.exe scripts/api_test.py
 ```
 
+```bash
+cd server && .venv/Scripts/python.exe scripts/rag_test.py
+```
+
 `smoke_test.py` checks the model loads and generates, with timings and memory.
 `api_test.py` needs the server running and covers the behaviours that are easy
 to get subtly wrong: that history is really fed back to the model, that two
 sessions cannot see each other, and that deleting a session removes its messages.
+
+`rag_test.py` exercises the knowledge base across all four source types. Every
+fixture states invented facts — a made-up protocol, an invented part number, an
+odd refund window — so a correct answer can only come from retrieval. A suite
+built on real facts would pass even with retrieval completely broken.
 
 ## Performance on modest hardware
 
@@ -193,6 +308,12 @@ defaults in `app/config.py` are sensible.
 | `DELETE` | `/api/sessions/{id}` | Delete, cascading to messages |
 | `POST` | `/api/sessions/{id}/clear` | Clear messages, keep the session |
 | `POST` | `/api/chat/stream` | Stream a reply (SSE) |
+| `POST` | `/api/documents` | Upload a PDF, TXT, MD or HTML file |
+| `POST` | `/api/documents/url` | Index a web page |
+| `GET` | `/api/documents` | List the knowledge base |
+| `GET` | `/api/documents/events` | Live status updates (SSE): a snapshot, then one event per change |
+| `DELETE` | `/api/documents/{id}` | Delete a document and its vectors |
+| `POST` | `/api/documents/search` | Retrieval only, with scores — for tuning |
 
 Interactive docs while the server runs: http://127.0.0.1:8000/docs
 
@@ -203,6 +324,7 @@ the client has a single parsing path:
 
 ```
 data: {"type": "session",  "session_id": "...", "title": "...", "created": true}
+data: {"type": "sources",  "sources": [...], "searched": true}
 data: {"type": "thinking", "text": "..."}
 data: {"type": "token",    "text": "..."}
 data: {"type": "done",     "content": "...", "message_id": 12, "stopped": false}
@@ -225,17 +347,28 @@ illamaProjects/
 │   │   ├── db/
 │   │   │   ├── database.py      # connections and schema
 │   │   │   └── repository.py    # all session/message SQL
+│   │   ├── rag/
+│   │   │   ├── embedder.py      # nomic-embed, prefixes + pooling
+│   │   │   ├── loaders.py       # PDF / text / HTML / URL -> text
+│   │   │   ├── chunker.py       # structure-aware splitting
+│   │   │   ├── store.py         # Chroma vectors + FTS5 keywords
+│   │   │   ├── retriever.py     # hybrid search, RRF, filtering
+│   │   │   └── ingest.py        # background indexing
 │   │   ├── api/
 │   │   │   ├── chat.py          # streaming chat
+│   │   │   ├── documents.py     # knowledge base
 │   │   │   └── sessions.py      # session CRUD
 │   │   └── schemas/chat.py
-│   ├── scripts/                 # smoke_test.py, api_test.py
-│   └── data/                    # chats.db (gitignored)
+│   ├── scripts/                 # smoke_test.py, api_test.py, rag_test.py
+│   └── data/                    # chats.db, vector_db, uploads (gitignored)
 └── client/
     └── src/
         ├── App.jsx              # state, send/stop flow
         ├── api.js               # fetch + SSE reader
         └── components/
+            ├── KnowledgePanel.jsx   # uploads, links, indexing status
+            ├── RichText.jsx         # Markdown -> React, no raw HTML
+            └── ...
 ```
 
 ## Design notes
@@ -277,15 +410,104 @@ applications, or lower `N_CTX`.
 **Client shows "server offline"** — the server is not running on port 8000, or
 it crashed on startup. Check its terminal.
 
-## Where RAG plugs in later
+## How retrieval works
 
-The seam is deliberate: `build_messages()` in `app/core/prompt.py` is the single
-place that decides what context the model sees. Adding retrieval means adding an
-embedder, a vector store and document upload, then changing only that function
-to prepend retrieved chunks. Routes, storage and the client stay as they are.
-The agent tool-calling loop replaces the same function's body a step after that.
+Retrieval is a pipeline, and each stage is there because the naive version has
+a specific failure mode:
 
-One caution for that stage: **do not use a 4 GB embedding model** on a machine
-like this. A ~600 MB `Qwen3-Embedding-0.6B-Q8_0` gives comparable retrieval
-quality here, and is what makes running an embedder alongside the 4B chat model
-possible at all within 8 GB.
+**1. Chunking** (`rag/chunker.py`) splits on paragraph then sentence
+boundaries, never across a page or section break, with overlap between
+neighbours. A chunk cut mid-sentence embeds poorly, because the vector then
+describes a fragment. Each chunk is embedded with its document and section name
+prepended — "the limit is 30 days" is meaningless once lifted out of the policy
+it belonged to.
+
+**2. Two indexes** (`rag/store.py`), because they fail differently:
+
+| | Good at | Bad at |
+|---|---|---|
+| Vectors (Chroma, cosine) | meaning, paraphrase | rare literal strings |
+| BM25 (SQLite FTS5) | exact terms, codes, names | any rephrasing |
+
+Search for part number `QX-4471-B` and pure vector search struggles — the
+string carries almost no semantic signal. BM25 finds it instantly. Ask "how do
+I get my money back" and BM25 finds nothing while the vector lands on the
+refund section. Running both is what makes retrieval dependable rather than
+occasionally impressive.
+
+**3. Fusion with Reciprocal Rank Fusion** (`rag/retriever.py`). RRF combines
+the two *rankings*, not their scores. Cosine similarity and BM25 live on
+different unnormalised scales, so any weighted sum of them needs retuning
+whenever the corpus changes; RRF needs none.
+
+**4. A relevance floor.** Measured, not guessed: nomic-embed scores two
+completely unrelated sentences at 0.36–0.48, while genuine matches land at
+0.70–0.90. The floor sits at 0.50, between the two populations. A threshold
+near zero would admit everything, which is exactly how a RAG system ends up
+answering confidently from irrelevant text. When nothing clears the floor the
+model is told there is no context, rather than being handed noise.
+
+**5. Neighbour expansion.** The chunks either side of a strong hit are pulled
+in, so an answer straddling a boundary is not cut in half.
+
+**6. Follow-up questions.** "What about the second one?" is unanswerable alone,
+so a short or anaphoric question is rewritten with the previous turn before
+searching. Deliberately a heuristic rather than an LLM rewrite — a rewrite call
+would cost several seconds per message at 4–6 tokens/sec.
+
+Everything is tunable in `server/app/config.py`: `chunk_chars`,
+`rag_candidates`, `rag_top_k`, `rag_min_score`, `rag_neighbour_window`,
+`rag_max_context_chars`.
+
+### Debugging retrieval
+
+`POST /api/documents/search` runs retrieval *without* generating an answer and
+returns both scores per chunk. It is the only practical way to tell a retrieval
+problem from a generation problem — if the right chunk is not in those results,
+no amount of prompt tuning will help.
+
+### Choosing an embedding model
+
+The embedder shares 8 GB with a 2.7 GB chat model, so size matters more than
+leaderboard position. Measured GGUF sizes:
+
+| Model | Q8_0 size | Dims | Notes |
+|---|---|---|---|
+| **nomic-embed-text-v1.5** | **139 MB** | 768 | Used here. Retrieval-trained, fast on CPU, English-only. |
+| Qwen3-Embedding-0.6B | 610 MB | 1024 | Better quality and multilingual, but 4.4× the size and slower. |
+| EmbeddingGemma-300M | ~307 MB | 768 | Middle ground; llama.cpp support less proven. |
+| Qwen3-Embedding-4B | 2.5 GB | 2560 | **Will not fit** beside the chat model. |
+
+Use Q8_0 rather than a smaller quant: embedding vectors are more sensitive to
+quantization than generated text, and the saving below Q8 is a few dozen MB.
+Note that this GGUF declares a **2048-token** context, not the 8192 the model
+card advertises, so chunks are sized well under it.
+
+Switch models with `EMBED_MODEL_PATH` in `server/.env` — but two models produce
+incompatible vectors, so **delete `server/data/vector_db` and re-index
+everything** afterwards. Mixed vectors return nonsense rather than an error.
+
+Three details about nomic-embed are easy to get wrong and silently degrade
+retrieval rather than raising an error, all handled in `rag/embedder.py`: task
+prefixes (`search_query:` on questions, `search_document:` on passages), mean
+pooling, and L2 normalisation.
+
+### A note on exposure
+
+The URL fetcher refuses links that resolve to private, loopback or link-local
+addresses. With the app reachable from the LAN and no authentication, an
+unrestricted fetcher would let anyone on the Wi-Fi reach services that are not
+otherwise exposed. Override with `ALLOW_PRIVATE_URL_FETCH=true` only if you
+intend to index something on your own network.
+
+## Not done yet
+
+- **Agent tool loop.** Retrieval currently always runs when documents exist.
+  The next step is letting the model decide per turn whether to search, and
+  re-search with a rewritten query when the first attempt comes back weak.
+  `retriever.retrieve()` is the seam.
+- **Reranking.** A cross-encoder over the fused candidates would improve
+  ordering, at the cost of another model in memory and more latency per query.
+- **OCR** for scanned PDFs; image-only pages are currently rejected with a
+  clear message.
+- Auth and multi-user, Docker, tests beyond the three suites.

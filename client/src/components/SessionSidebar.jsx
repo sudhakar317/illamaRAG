@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import HealthCard from './HealthBadge'
+import Icon from './Icon'
 
 function formatWhen(iso) {
   if (!iso) return ''
@@ -16,6 +18,8 @@ function formatWhen(iso) {
 }
 
 export default function SessionSidebar({
+  view,
+  onViewChange,
   sessions,
   activeId,
   onSelect,
@@ -23,6 +27,11 @@ export default function SessionSidebar({
   onRename,
   onDelete,
   disabled,
+  isOpen,
+  onClose,
+  health,
+  healthError,
+  documentCount,
 }) {
   const [editingId, setEditingId] = useState(null)
   const [draft, setDraft] = useState('')
@@ -39,13 +48,47 @@ export default function SessionSidebar({
   }
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar glass ${isOpen ? 'sidebar--open' : ''}`}>
       <div className="sidebar__head">
-        <h1 className="sidebar__brand">illamaRAG</h1>
-        <button className="btn btn--new" onClick={onNew} disabled={disabled}>
-          + New chat
+        <div className="brand">
+          <span className="brand__mark">
+            <Icon name="sparkle" size={16} strokeWidth={2} />
+          </span>
+          <span className="brand__name">illamaRAG</span>
+        </div>
+        <button
+          className="iconbtn sidebar__close"
+          onClick={onClose}
+          aria-label="Close menu"
+        >
+          <Icon name="x" />
         </button>
       </div>
+
+      <button className="btn btn--primary btn--block" onClick={onNew} disabled={disabled}>
+        <Icon name="plus" size={16} strokeWidth={2.2} /> New chat
+      </button>
+
+      <nav className="nav" aria-label="Sections">
+        <button
+          className={`nav__item ${view === 'chat' ? 'nav__item--active' : ''}`}
+          onClick={() => onViewChange('chat')}
+          aria-current={view === 'chat' ? 'page' : undefined}
+        >
+          <Icon name="chat" size={17} /> Chats
+          <span className="nav__count">{sessions.length}</span>
+        </button>
+        <button
+          className={`nav__item ${view === 'knowledge' ? 'nav__item--active' : ''}`}
+          onClick={() => onViewChange('knowledge')}
+          aria-current={view === 'knowledge' ? 'page' : undefined}
+        >
+          <Icon name="book" size={17} /> Knowledge
+          <span className="nav__count">{documentCount}</span>
+        </button>
+      </nav>
+
+      <div className="sidebar__section">Recent</div>
 
       <div className="sidebar__list">
         {sessions.length === 0 && (
@@ -55,8 +98,13 @@ export default function SessionSidebar({
         {sessions.map((s) => (
           <div
             key={s.id}
-            className={`session ${s.id === activeId ? 'session--active' : ''}`}
-            onClick={() => editingId !== s.id && onSelect(s.id)}
+            className={`session ${
+              s.id === activeId && view === 'chat' ? 'session--active' : ''
+            }`}
+            onClick={() => {
+              if (editingId === s.id) return
+              onSelect(s.id)
+            }}
           >
             {editingId === s.id ? (
               <input
@@ -80,27 +128,33 @@ export default function SessionSidebar({
                 <div className="session__actions">
                   <button
                     title="Rename"
+                    aria-label={`Rename ${s.title}`}
                     onClick={(e) => {
                       e.stopPropagation()
                       startRename(s)
                     }}
                   >
-                    ✎
+                    <Icon name="edit" size={14} />
                   </button>
                   <button
                     title="Delete"
+                    aria-label={`Delete ${s.title}`}
                     onClick={(e) => {
                       e.stopPropagation()
                       onDelete(s.id)
                     }}
                   >
-                    🗑
+                    <Icon name="trash" size={14} />
                   </button>
                 </div>
               </>
             )}
           </div>
         ))}
+      </div>
+
+      <div className="sidebar__foot">
+        <HealthCard health={health} error={healthError} />
       </div>
     </aside>
   )

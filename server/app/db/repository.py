@@ -6,6 +6,7 @@ place.
 
 from __future__ import annotations
 
+import json
 import uuid
 
 from app.db.database import get_connection
@@ -104,7 +105,12 @@ def clear_session(session_id: str) -> None:
 # ---------------------------------------------------------------- messages
 
 
-def add_message(session_id: str, role: str, content: str) -> int:
+def add_message(
+    session_id: str,
+    role: str,
+    content: str,
+    sources: list[dict] | None = None,
+) -> int:
     """Append a message and mark the session as recently active.
 
     Bumping updated_at here is what keeps the sidebar ordered by real activity;
@@ -112,8 +118,14 @@ def add_message(session_id: str, role: str, content: str) -> int:
     """
     with get_connection() as conn:
         cursor = conn.execute(
-            "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)",
-            (session_id, role, content),
+            "INSERT INTO messages (session_id, role, content, sources) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                session_id,
+                role,
+                content,
+                json.dumps(sources) if sources else None,
+            ),
         )
         conn.execute(
             "UPDATE sessions SET updated_at = datetime('now') WHERE id = ?",
@@ -123,15 +135,28 @@ def add_message(session_id: str, role: str, content: str) -> int:
 
 
 def get_messages(session_id: str, include_system: bool = False) -> list[dict]:
-    """The full transcript, oldest first."""
-    sql = "SELECT id, role, content, created_at FROM messages WHERE session_id = ?"
+    """The full transcript, oldest first, with citations decoded."""
+    sql = (
+        "SELECT id, role, content, sources, created_at "
+        "FROM messages WHERE session_id = ?"
+    )
     if not include_system:
         sql += " AND role != 'system'"
     sql += " ORDER BY id ASC"
 
     with get_connection() as conn:
         rows = conn.execute(sql, (session_id,)).fetchall()
-    return [dict(r) for r in rows]
+
+    messages = []
+    for row in rows:
+        message = dict(row)
+        raw = message.pop("sources", None)
+        try:
+            message["sources"] = json.loads(raw) if raw else None
+        except (TypeError, ValueError):
+            message["sources"] = None
+        messages.append(message)
+    return messages
 
 
 def get_history_for_model(session_id: str) -> list[dict]:

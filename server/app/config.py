@@ -66,6 +66,49 @@ class Settings(BaseSettings):
         "something, say so plainly instead of guessing."
     )
 
+    # ---- Retrieval (RAG) ----
+    embed_model_path: Path = REPO_ROOT / "models" / "nomic-embed-text-v1.5.Q8_0.gguf"
+
+    # This GGUF declares a 2048-token context. Chunks are sized well under it;
+    # anything longer is truncated by llama.cpp without warning.
+    embed_n_ctx: int = 2048
+
+    # Chunking, in characters. ~1200 chars is roughly 300 tokens: large enough
+    # to carry a coherent idea, small enough that the embedding still points
+    # somewhere specific rather than averaging several topics together.
+    chunk_chars: int = 1200
+    chunk_overlap_chars: int = 200
+
+    # Retrieval. Each side of the hybrid search contributes this many
+    # candidates before fusion; the top `rag_top_k` survive into the prompt.
+    rag_candidates: int = 12
+    rag_top_k: int = 4
+
+    # Cosine similarity below this is treated as "no relevant context" rather
+    # than being fed to the model. Stops confident answers built on noise.
+    #
+    # Measured, not guessed: nomic-embed has a high similarity floor, so two
+    # completely unrelated sentences still score 0.36-0.48. A naive threshold
+    # near zero would therefore admit everything. Genuine matches land at
+    # 0.70-0.90, which leaves 0.50 comfortably between the two populations.
+    rag_min_score: float = 0.50
+
+    # Pull in chunks either side of a hit, so an answer split across a chunk
+    # boundary is not cut in half.
+    rag_neighbour_window: int = 1
+
+    # Ceiling on retrieved context, so documents cannot crowd out the
+    # conversation inside a 4096-token window.
+    rag_max_context_chars: int = 4800
+
+    # How long to wait when fetching a URL, in seconds.
+    url_fetch_timeout: float = 20.0
+
+    # Let "add a link" fetch addresses on this machine or the local network.
+    # Off by default, because the server answers anyone on the LAN.
+    allow_private_url_fetch: bool = False
+    max_upload_mb: int = 25
+
     # ---- Storage ----
     data_dir: Path = SERVER_DIR / "data"
 
@@ -81,12 +124,21 @@ class Settings(BaseSettings):
     def db_path(self) -> Path:
         return self.data_dir / "chats.db"
 
+    @property
+    def vector_dir(self) -> Path:
+        return self.data_dir / "vector_db"
+
+    @property
+    def uploads_dir(self) -> Path:
+        return self.data_dir / "uploads"
+
 
 @lru_cache
 def get_settings() -> Settings:
     """Settings are read once and cached for the process lifetime."""
     settings = Settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     return settings
 
 

@@ -7,8 +7,10 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 
-# ---- Runtime data (SQLite chat history) ----
+# ---- Runtime data: chat history, vector index, uploaded files ----
 server/data/
+server/data/vector_db/
+server/data/uploads/
 *.db
 *.db-wal
 *.db-shm

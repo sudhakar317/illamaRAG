@@ -26,6 +26,7 @@ class MessageOut(BaseModel):
     role: str
     content: str
     created_at: str
+    sources: list[dict] | None = None
 
 
 class ChatRequest(BaseModel):
@@ -33,3 +34,7 @@ class ChatRequest(BaseModel):
     # Optional: when absent or unknown, the server creates a session and
     # announces its id in the first SSE event.
     session_id: str | None = None
+
+    # Search the knowledge base before answering. Retrieval is skipped
+    # automatically when nothing has been indexed yet.
+    use_rag: bool = True

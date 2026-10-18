@@ -30,17 +30,43 @@ export const deleteSession = (id) =>
 export const clearSession = (id) =>
   request(`/api/sessions/${id}/clear`, { method: 'POST' })
 
+// ---------------------------------------------------------------- knowledge
+
+export const listDocuments = () => request('/api/documents')
+export const deleteDocument = (id) =>
+  request(`/api/documents/${id}`, { method: 'DELETE' })
+export const addUrl = (url) =>
+  request('/api/documents/url', { method: 'POST', body: JSON.stringify({ url }) })
+
+/** Upload a file. fetch sets the multipart boundary itself, so no headers here. */
+export async function uploadDocument(file) {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch('/api/documents', { method: 'POST', body: form })
+  if (!res.ok) {
+    let detail = `Upload failed (${res.status})`
+    try {
+      const body = await res.json()
+      if (body?.detail) detail = body.detail
+    } catch {
+      // No JSON body; the status message is enough.
+    }
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
 /**
  * Stream a reply, invoking onEvent for each server event.
  *
  * Uses fetch + a stream reader rather than EventSource, because EventSource
  * cannot issue a POST and the request needs a JSON body.
  */
-export async function streamChat({ message, sessionId, signal, onEvent }) {
+export async function streamChat({ message, sessionId, useRag = true, signal, onEvent }) {
   const res = await fetch('/api/chat/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, session_id: sessionId }),
+    body: JSON.stringify({ message, session_id: sessionId, use_rag: useRag }),
     signal,
   })
   if (!res.ok || !res.body) {

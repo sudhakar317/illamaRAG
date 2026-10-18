@@ -127,6 +127,7 @@ def stream_reply(
     user_message: str,
     system_prompt: str | None = None,
     should_stop: Callable[[], bool] | None = None,
+    context: str | None = None,
 ) -> Iterator[tuple[str, str]]:
     """Stream a reply, yielding ("token" | "thinking", text) pairs.
 
@@ -150,6 +151,7 @@ def stream_reply(
         count_tokens=count_tokens,
         budget=prompt_budget(),
         enable_thinking=settings.enable_thinking,
+        context=context,
     )
     if dropped:
         logger.info("Trimmed %d oldest message(s) to fit the context window.", dropped)

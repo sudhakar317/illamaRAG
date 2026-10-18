@@ -5,6 +5,7 @@ object with a `type` field rather than using SSE's own `event:` lines, so the
 browser side has exactly one parsing path:
 
     data: {"type": "session",  "session_id": "...", "title": "..."}
+    data: {"type": "sources",  "sources": [...], "searched": true}
     data: {"type": "thinking", "text": "..."}
     data: {"type": "token",    "text": "..."}
     data: {"type": "done",     "content": "...", "message_id": 12, "stopped": false}
@@ -34,6 +35,7 @@ from fastapi.responses import StreamingResponse
 from app.config import settings
 from app.core import llm
 from app.db import repository as repo
+from app.rag import retriever
 from app.schemas.chat import ChatRequest
 
 logger = logging.getLogger(__name__)
@@ -81,6 +83,24 @@ async def chat_stream(body: ChatRequest, request: Request) -> StreamingResponse:
 
     title = (repo.get_session(session_id) or {}).get("title", "")
 
+    # Retrieval runs here rather than inside the generator, so a failure
+    # surfaces as a normal error instead of halfway through a stream. It is
+    # fast -- one small embedding plus two index lookups -- next to generation.
+    context = ""
+    sources: list[dict] = []
+    searched = False
+    if body.use_rag:
+        try:
+            results = retriever.retrieve(message, history=history)
+            searched = True
+            if results:
+                context, sources = retriever.build_context(results)
+                logger.info(
+                    "Retrieved %d chunk(s) for session %s", len(results), session_id
+                )
+        except Exception:  # noqa: BLE001 - retrieval must never break chat
+            logger.exception("Retrieval failed; answering without context")
+
     async def event_generator() -> AsyncIterator[str]:
         events: queue.Queue = queue.Queue(maxsize=_QUEUE_SIZE)
         stop_event = threading.Event()
@@ -94,6 +114,7 @@ async def chat_stream(body: ChatRequest, request: Request) -> StreamingResponse:
                     user_message=message,
                     system_prompt=settings.system_prompt,
                     should_stop=stop_event.is_set,
+                    context=context or None,
                 ):
                     events.put((kind, text))
             except Exception as exc:  # noqa: BLE001 - surfaced as an SSE event
@@ -116,6 +137,11 @@ async def chat_stream(body: ChatRequest, request: Request) -> StreamingResponse:
                     "created": created,
                 }
             )
+
+            # Sent before the first token, so citations are on screen while
+            # the answer is still being written.
+            if searched:
+                yield _sse({"type": "sources", "sources": sources, "searched": True})
 
             while True:
                 try:
@@ -144,12 +170,15 @@ async def chat_stream(body: ChatRequest, request: Request) -> StreamingResponse:
 
             answer = "".join(pieces).strip()
             if answer:
-                message_id = repo.add_message(session_id, "assistant", answer)
+                message_id = repo.add_message(
+                    session_id, "assistant", answer, sources=sources or None
+                )
                 yield _sse(
                     {
                         "type": "done",
                         "content": answer,
                         "message_id": message_id,
+                        "sources": sources,
                         "stopped": stop_event.is_set(),
                     }
                 )
@@ -168,7 +197,12 @@ async def chat_stream(body: ChatRequest, request: Request) -> StreamingResponse:
             # If the client vanished before `done` could be sent, the reply is
             # still worth keeping -- it is what they saw on screen.
             if pieces and not _already_saved(session_id, pieces):
-                repo.add_message(session_id, "assistant", "".join(pieces).strip())
+                repo.add_message(
+                    session_id,
+                    "assistant",
+                    "".join(pieces).strip(),
+                    sources=sources or None,
+                )
 
     return StreamingResponse(
         event_generator(),
