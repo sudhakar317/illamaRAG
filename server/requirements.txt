@@ -1,0 +1,20 @@
+# ---- FastAPI server (all available as wheels from PyPI) ----
+fastapi==0.120.4
+uvicorn[standard]==0.38.0
+pydantic-settings==2.13.0
+
+# ---- llama-cpp-python's own runtime dependencies ----
+numpy
+diskcache
+jinja2
+
+# ---- Local GGUF inference ----
+# llama-cpp-python==0.3.34 is NOT installable from PyPI: there is no prebuilt
+# Windows wheel, so pip tries to compile llama.cpp from source and needs a full
+# MSVC C++ toolchain. It is therefore deliberately NOT listed here -- see
+# "Installing llama-cpp-python" in the project README for the two options
+# (copy the already-compiled package, or install a prebuilt wheel).
+#
+# This version is pinned by choice: its bundled llama.dll is verified to contain
+# the `qwen35` architecture that Qwen3.5-4B-Q4_K_M.gguf requires.
+# llama-cpp-python==0.3.34

@@ -1,0 +1,12 @@
+# Normalise line endings so the repo stays consistent across machines.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Never touch binaries.
+*.gguf binary
+*.db binary
+*.png binary
+*.jpg binary

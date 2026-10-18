@@ -1,0 +1,29 @@
+# ---- Local models (multi-GB GGUF files, never commit) ----
+models/
+
+# ---- Python ----
+server/.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ---- Runtime data (SQLite chat history) ----
+server/data/
+*.db
+*.db-wal
+*.db-shm
+
+# ---- Secrets / local config ----
+.env
+server/.env
+
+# ---- Node / Vite ----
+node_modules/
+client/dist/
+*.local
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
