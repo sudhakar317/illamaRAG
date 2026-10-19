@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS messages (
     -- JSON array of citations for an assistant reply, so the sources a user
     -- saw are still there after a reload rather than being lost with the stream.
     sources    TEXT,
+    -- JSON, for agent turns: {"run_id": ..., "kind": "questions" | "answer"},
+    -- so the reasoning behind a message can be redrawn after a reload.
+    meta       TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -84,6 +87,9 @@ def init_db() -> None:
         if "sources" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN sources TEXT")
             logger.info("Added messages.sources column to the existing database.")
+        if "meta" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN meta TEXT")
+            logger.info("Added messages.meta column to the existing database.")
 
         conn.commit()
     finally:

@@ -27,6 +27,7 @@ class MessageOut(BaseModel):
     content: str
     created_at: str
     sources: list[dict] | None = None
+    meta: dict | None = None
 
 
 class ChatRequest(BaseModel):

@@ -34,7 +34,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
     id           TEXT PRIMARY KEY,
     title        TEXT NOT NULL,
-    source_type  TEXT NOT NULL,          -- pdf | text | html | url
+    source_type  TEXT NOT NULL,          -- pdf | text | html | url | note
     source       TEXT,                   -- original filename or URL
     status       TEXT NOT NULL DEFAULT 'pending',  -- pending|indexing|indexed|failed
     error        TEXT,
@@ -78,9 +78,24 @@ class ChunkRow:
     source: str | None
 
 
+# Provenance, added after the first release. Defaults describe everything
+# indexed before they existed: an upload, from an official document.
+_PROVENANCE_COLUMNS = {
+    "origin": "TEXT NOT NULL DEFAULT 'upload'",   # upload | url | conversation
+    "trust": "TEXT NOT NULL DEFAULT 'official'",  # official | user_stated
+}
+
+
 def init_rag_db() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA)
+        # CREATE TABLE IF NOT EXISTS leaves an older table untouched, so new
+        # columns are added here; existing rows take the defaults.
+        columns = {r[1] for r in conn.execute("PRAGMA table_info(documents)")}
+        for name, definition in _PROVENANCE_COLUMNS.items():
+            if name not in columns:
+                conn.execute(f"ALTER TABLE documents ADD COLUMN {name} {definition}")
+                logger.info("Added documents.%s column.", name)
     logger.info("Knowledge base tables ready.")
 
 
@@ -114,15 +129,32 @@ def get_collection():
 # --------------------------------------------------------------- documents
 
 
-def create_document(title: str, source_type: str, source: str | None) -> str:
+def create_document(
+    title: str,
+    source_type: str,
+    source: str | None,
+    *,
+    origin: str = "upload",
+    trust: str = "official",
+) -> str:
     document_id = str(uuid.uuid4())
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO documents (id, title, source_type, source, status) "
-            "VALUES (?, ?, ?, ?, 'pending')",
-            (document_id, title, source_type, source),
+            "INSERT INTO documents (id, title, source_type, source, status, origin, trust) "
+            "VALUES (?, ?, ?, ?, 'pending', ?, ?)",
+            (document_id, title, source_type, source, origin, trust),
         )
     return document_id
+
+
+def find_documents(title: str, origin: str) -> list[dict]:
+    """Documents of one origin with this title, ignoring case and spacing."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM documents WHERE origin = ? AND lower(trim(title)) = lower(trim(?))",
+            (origin, title),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def set_status(
@@ -248,6 +280,27 @@ def add_chunks(
     return ids
 
 
+def reconcile_vectors() -> list[int]:
+    """Make the vector index agree with SQLite; return chunks with no vector.
+
+    SQLite is the source of truth, but the two indexes are written separately,
+    so a crash mid-write or a deletion from an older version can leave them
+    apart. A vector with no chunk behind it still takes one of the few
+    candidate slots in every search; a chunk with no vector is invisible to
+    the semantic half of search. Both are fixed at startup.
+    """
+    with get_connection() as conn:
+        chunk_ids = {int(r["id"]) for r in conn.execute("SELECT id FROM chunks")}
+    collection = get_collection()
+    vector_ids = {int(i) for i in collection.get(include=[])["ids"]}
+
+    orphans = vector_ids - chunk_ids
+    if orphans:
+        collection.delete(ids=[str(i) for i in orphans])
+        logger.info("Removed %d orphan vector(s) with no chunk behind them.", len(orphans))
+    return sorted(chunk_ids - vector_ids)
+
+
 def get_chunks(chunk_ids: list[int]) -> dict[int, ChunkRow]:
     if not chunk_ids:
         return {}
@@ -320,14 +373,21 @@ def _fts_query(text: str) -> str:
     `"`, `*`, `-` and `NEAR` are operators there, so an ordinary question would
     otherwise raise a syntax error. Every term is quoted as a literal and
     OR-ed, letting BM25 rank by how many rare terms a chunk contains.
+
+    Adjacent word pairs go in too, as phrases. Without them "custom functions
+    support free plan" ranks a pricing page that says "free" and "plan" a
+    dozen times above the one passage that names "custom functions": single
+    terms cannot tell a feature name from two common words that happen to
+    appear in the same chunk. A phrase match scores as its own query term, so
+    the passage that uses the exact phrase rises to the top.
     """
     words = [w.lower() for w in _WORD.findall(text)]
-    terms = [w for w in words if len(w) > 1 and w not in _STOPWORDS]
-    if not terms:
-        terms = [w for w in words if len(w) > 1]
+    content = [w for w in words if len(w) > 1 and w not in _STOPWORDS]
+    terms = content or [w for w in words if len(w) > 1]
     if not terms:
         return ""
-    unique = list(dict.fromkeys(terms))[:24]
+    phrases = [f"{a} {b}" for a, b in zip(content, content[1:])]
+    unique = list(dict.fromkeys(phrases))[:12] + list(dict.fromkeys(terms))[:24]
     return " OR ".join(f'"{t}"' for t in unique)
 
 

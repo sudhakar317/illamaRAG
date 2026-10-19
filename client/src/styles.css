@@ -1506,3 +1506,367 @@ button.cite:hover { background: var(--accent); color: #fff; }
     scroll-behavior: auto !important;
   }
 }
+
+/* ==========================================================================
+   Agent: the claim tree, its questions, and what it proposes to keep
+   ========================================================================== */
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Children hang off their parent with a rule, so dependency reads at a glance. */
+.tree--nested {
+  margin: 8px 0 0 10px;
+  padding-left: 12px;
+  border-left: 2px solid var(--hairline);
+}
+
+.claim {
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  animation: rise 0.3s ease both;
+}
+
+.claim--ok   { border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+.claim--busy { border-color: var(--accent-ring); }
+.claim--warn { border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.claim--bad  { border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+
+.claim__row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+
+.claim__id {
+  flex: 0 0 auto;
+  font: 600 11px/1 var(--mono);
+  color: var(--text-faint);
+}
+
+.claim__text { flex: 1 1 200px; min-width: 0; font-size: 13px; font-weight: 600; }
+
+.claim__kind,
+.claim__state {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.claim__kind { background: var(--surface); color: var(--text-dim); border: 1px solid var(--hairline); }
+.claim__kind--you { color: var(--accent); border-color: var(--accent-ring); }
+
+.claim__state--ok   { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+.claim__state--busy { background: var(--accent-soft); color: var(--accent); }
+.claim__state--warn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.claim__state--bad  { background: var(--danger-soft); color: var(--danger); }
+.claim__state--idle { background: var(--surface); color: var(--text-faint); }
+
+.claim__detail {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.claim__answer .icon { flex: 0 0 auto; margin-top: 3px; color: var(--ok); }
+.claim__quote { flex-direction: column; gap: 2px; padding-left: 9px; border-left: 3px solid var(--accent-soft); }
+.claim__cite { font-size: 11.5px; color: var(--text-faint); }
+
+.claim__queries { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+
+.claim__queries code {
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  font: 11px/18px var(--mono);
+  color: var(--text-dim);
+}
+
+/* ---------- questions and proposals ---------- */
+.qcard,
+.pcard {
+  margin: 4px -18px 0;
+  padding: 12px 18px 4px;
+  border-top: 1px solid var(--hairline);
+}
+
+.qcard__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.qcard__q { margin-bottom: 14px; }
+
+.qcard__text { display: flex; align-items: baseline; gap: 8px; font-size: 14px; font-weight: 600; }
+
+.qcard__n {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.qcard__why,
+.qcard__hint { margin: 4px 0 0 28px; font-size: 12px; color: var(--text-faint); }
+.pcard .qcard__hint { margin-left: 0; margin-bottom: 8px; }
+
+.qcard__options,
+.qcard__field { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0 28px; }
+.qcard__field { align-items: flex-start; }
+
+.qcard__field textarea,
+.proposal__input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  resize: vertical;
+}
+
+.qcard__field textarea:focus,
+.proposal__input:focus { outline: 2px solid var(--accent-ring); outline-offset: 0; border-color: transparent; }
+
+.chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.chip:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); }
+.chip--on { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-ring); }
+.chip:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.qcard__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 10px;
+}
+
+.qcard__count { font-size: 12px; color: var(--text-faint); }
+
+.btn--sm { padding: 6px 12px; font-size: 13px; }
+
+.pcard__list { display: grid; gap: 8px; margin: 0 0 8px; padding: 0; list-style: none; }
+
+.proposal {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+}
+
+.proposal--saved { border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+.proposal--discarded { opacity: 0.6; }
+
+.proposal__where { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
+.proposal__where code { font: 11.5px var(--mono); color: var(--text); }
+.proposal__title { font-weight: 600; }
+.proposal__actions { display: flex; align-items: center; gap: 6px; }
+.proposal__status { font-size: 12.5px; font-weight: 600; color: var(--text-dim); }
+.proposal__status--saved { color: var(--ok); }
+
+@media (max-width: 760px) {
+  .qcard__why,
+  .qcard__hint,
+  .qcard__options,
+  .qcard__field { margin-left: 0; }
+}
+
+/* ---------- agent: live work header and step timeline ---------- */
+.work {
+  margin: -2px -6px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.work--live { border-color: var(--accent-ring); }
+
+.work__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.work__head:hover { color: var(--text); }
+.work__head .spinner { flex: 0 0 auto; width: 13px; height: 13px; border-width: 2px; }
+.work--live .work__now { color: var(--text); font-weight: 600; }
+.work__now { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.work__meta { flex: 0 0 auto; color: var(--text-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.work__chevron { margin-left: auto; flex: 0 0 auto; transition: transform 0.18s ease; }
+.work--open .work__chevron { transform: rotate(90deg); }
+
+/* A thin bar that moves while the agent works, so the header reads as alive. */
+.work--live .work__head { position: relative; }
+.work--live .work__head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: sweep 1.6s linear infinite;
+}
+
+.work__body { padding: 2px 12px 12px; border-top: 1px solid var(--hairline); }
+
+.work__sub {
+  margin: 12px 0 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.steps { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+
+.step { display: flex; gap: 10px; padding: 5px 0; animation: rise 0.25s ease both; }
+
+.step__mark {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
+}
+
+.step--running .step__mark { background: var(--accent-soft); color: var(--accent); }
+.step__mark .spinner { width: 11px; height: 11px; border-width: 2px; }
+
+.step__body { flex: 1; min-width: 0; }
+.step__head { display: flex; align-items: baseline; gap: 8px; }
+.step__label { font-size: 13px; font-weight: 600; }
+.step--done .step__label { color: var(--text-dim); }
+.step__time { margin-left: auto; flex: 0 0 auto; font-size: 11.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+.step__details {
+  margin: 3px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.step__details li::before { content: "· "; color: var(--text-faint); }
+
+.claim__quote--related { opacity: 0.85; border-left-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+
+/* ---------- what an answer rests on ---------- */
+.basis { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+.basis__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1px solid var(--hairline);
+}
+
+.basis__chip--ok   { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.basis__chip--you  { color: var(--accent); background: var(--accent-soft); }
+.basis__chip--warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+
+/* ---------- question evidence and proposal warnings ---------- */
+.qcard__related {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0 0 28px;
+  padding: 7px 10px;
+  border-left: 3px solid var(--accent-soft);
+  border-radius: 0 8px 8px 0;
+  background: var(--surface);
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.qcard__related-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.qcard__related cite { font-style: normal; font-size: 11.5px; color: var(--text-faint); }
+
+.proposal__warning {
+  display: flex;
+  gap: 6px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.proposal__warning .icon { flex: 0 0 auto; margin-top: 1px; }
+.proposal--saving { opacity: 0.8; }
+.proposal__status { display: inline-flex; align-items: center; gap: 6px; }
+.proposal__status .spinner { width: 11px; height: 11px; border-width: 2px; }
+
+@media (max-width: 760px) {
+  .qcard__related { margin-left: 0; }
+  .work { margin-left: 0; margin-right: 0; }
+}

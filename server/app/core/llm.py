@@ -189,6 +189,53 @@ def stream_reply(
             stream.close()
 
 
+class GenerationCancelled(Exception):
+    """Raised inside a constrained generation when the caller asked it to stop."""
+
+
+def generate_constrained(
+    prompt: str,
+    grammar: llama_cpp.LlamaGrammar,
+    max_tokens: int = 512,
+    should_stop: Callable[[], bool] | None = None,
+    on_token: Callable[[int], None] | None = None,
+) -> str:
+    """Generate text that the grammar forces into a fixed shape, returned whole.
+
+    `on_token` is called with the running token count, so a caller can show
+    progress through a step that may take tens of seconds on a CPU.
+
+    Used by the agent for its structured steps. It shares the generation lock
+    with stream_reply, so an agent step and a chat reply can never interleave on
+    the one KV cache. Sampling is cooler than chat and the repeat penalty is off:
+    JSON repeats its punctuation and key names by nature, and penalising that
+    pushes a small model towards malformed output.
+    """
+    llm = get_llm()
+    pieces: list[str] = []
+    with _generate_lock:
+        stream = llm.create_completion(
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=0.2,
+            top_p=0.9,
+            repeat_penalty=1.0,
+            stop=STOP_SEQUENCES,
+            grammar=grammar,
+            stream=True,
+        )
+        try:
+            for chunk in stream:
+                if should_stop is not None and should_stop():
+                    raise GenerationCancelled()
+                pieces.append(chunk["choices"][0]["text"])
+                if on_token is not None:
+                    on_token(len(pieces))
+        finally:
+            stream.close()
+    return "".join(pieces)
+
+
 def model_info() -> dict:
     """Describe the configured model without forcing it to load."""
     path = settings.model_path

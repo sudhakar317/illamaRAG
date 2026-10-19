@@ -57,20 +57,21 @@ export async function uploadDocument(file) {
 }
 
 /**
- * Stream a reply, invoking onEvent for each server event.
+ * Read a Server-Sent Events body, invoking onEvent for each JSON frame.
  *
  * Uses fetch + a stream reader rather than EventSource, because EventSource
- * cannot issue a POST and the request needs a JSON body.
+ * cannot issue a POST and these requests need a JSON body.
  */
-export async function streamChat({ message, sessionId, useRag = true, signal, onEvent }) {
-  const res = await fetch('/api/chat/stream', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, session_id: sessionId, use_rag: useRag }),
-    signal,
-  })
+async function readEvents(res, onEvent) {
   if (!res.ok || !res.body) {
-    throw new Error(`Server returned ${res.status}`)
+    let detail = `Server returned ${res.status}`
+    try {
+      const body = await res.json()
+      if (body?.detail) detail = body.detail
+    } catch {
+      // No JSON body; the status message is enough.
+    }
+    throw new Error(detail)
   }
 
   const reader = res.body.getReader()
@@ -99,3 +100,37 @@ export async function streamChat({ message, sessionId, useRag = true, signal, on
     }
   }
 }
+
+/** Stream a plain chat reply. */
+export async function streamChat({ message, sessionId, useRag = true, signal, onEvent }) {
+  const res = await fetch('/api/chat/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, session_id: sessionId, use_rag: useRag }),
+    signal,
+  })
+  await readEvents(res, onEvent)
+}
+
+// -------------------------------------------------------------------- agent
+
+/**
+ * Run the agent: either a new question (message), or the answers to the
+ * questions a run asked (runId + answers, keyed by claim id).
+ */
+export async function streamAgent({ message, sessionId, runId, answers, signal, onEvent }) {
+  const res = await fetch('/api/agent/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, session_id: sessionId, run_id: runId, answers }),
+    signal,
+  })
+  await readEvents(res, onEvent)
+}
+
+export const getAgentState = (sessionId) =>
+  request(`/api/agent/state?session_id=${encodeURIComponent(sessionId)}`)
+export const saveProposal = (id, edits = {}) =>
+  request(`/api/agent/proposals/${id}/save`, { method: 'POST', body: JSON.stringify(edits) })
+export const discardProposal = (id) =>
+  request(`/api/agent/proposals/${id}/discard`, { method: 'POST' })

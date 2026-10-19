@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import { AgentWork, AnswerBasis, ProposalCard, QuestionCard } from './AgentPanels'
 import Icon from './Icon'
 import RichText from './RichText'
 
 const PHASE_LABEL = {
   searching: 'Searching',
   thinking: 'Thinking',
+  agent: 'Working',
 }
 
-const TYPE_ICON = { pdf: 'file', text: 'file', html: 'globe', url: 'link' }
+const TYPE_ICON = { pdf: 'file', text: 'file', html: 'globe', url: 'link', note: 'edit' }
 
 /** Copies text, flipping the icon to a tick for a moment as feedback. */
 function CopyButton({ text, label = 'Copy' }) {
@@ -114,12 +116,15 @@ function hostOf(url) {
   }
 }
 
-/** Shown until the first word arrives; after that the caret is enough. */
-function StreamStatus({ phase }) {
+/**
+ * Shown until the first word arrives; after that the caret is enough. An
+ * agent run names its current stage instead of a generic word.
+ */
+function StreamStatus({ phase, stage }) {
   return (
     <div className="streamstatus" aria-live="polite">
       <span className="dots"><i /><i /><i /></span>
-      <span>{PHASE_LABEL[phase] || 'Thinking'}</span>
+      <span>{stage || PHASE_LABEL[phase] || 'Thinking'}</span>
     </div>
   )
 }
@@ -136,6 +141,13 @@ export default function MessageBubble({
   sources,
   streaming,
   phase,
+  stage,
+  trace,
+  questions,
+  proposals,
+  busy,
+  onAnswer,
+  onProposal,
 }) {
   const [showThinking, setShowThinking] = useState(false)
   const [highlight, setHighlight] = useState(null)
@@ -167,6 +179,9 @@ export default function MessageBubble({
   }
 
   const hasSources = sources?.length > 0
+  // While its questions are open, the card is the message; the plain-text
+  // version stored for the transcript would only repeat it.
+  const asking = questions && !questions.answered
 
   return (
     <div className={`msg msg--assistant ${streaming ? 'msg--streaming' : ''}`}>
@@ -175,7 +190,12 @@ export default function MessageBubble({
       </div>
 
       <article className="msg__card">
-        {streaming && !content && <StreamStatus phase={phase} />}
+        {/* An agent run says what it is doing in its own live header. */}
+        {streaming && !content && !trace && <StreamStatus phase={phase} stage={stage} />}
+
+        {/* Folded by default: the question or the answer is what to read;
+            the work behind it is one click away. */}
+        <AgentWork trace={trace} live={streaming} answering={streaming && !!content} />
 
         {thinking && (
           <div className="thinking">
@@ -191,7 +211,7 @@ export default function MessageBubble({
           </div>
         )}
 
-        {(content || !streaming) && (
+        {!asking && (content || !streaming) && (
           <div className="msg__body">
             <RichText
               text={content}
@@ -201,11 +221,26 @@ export default function MessageBubble({
           </div>
         )}
 
+        {/* What the answer rests on; question turns have nothing to rest yet. */}
+        {!streaming && !questions && content && <AnswerBasis claims={trace?.claims} />}
+
+        {asking && (
+          <QuestionCard questions={questions.items} disabled={busy} onSubmit={onAnswer} />
+        )}
+
         {hasSources && (
           <SourcesSection sources={sources} highlight={highlight} messageId={id} />
         )}
 
-        {!streaming && content && (
+        {proposals?.length > 0 && (
+          <ProposalCard
+            proposals={proposals}
+            onSave={(pid, edits) => onProposal(pid, 'save', edits)}
+            onDiscard={(pid) => onProposal(pid, 'discard')}
+          />
+        )}
+
+        {!streaming && !asking && content && (
           <div className="msg__actions">
             <CopyButton text={content} />
           </div>

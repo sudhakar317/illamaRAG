@@ -20,7 +20,18 @@ function useIsNarrow() {
 }
 
 const Composer = forwardRef(function Composer(
-  { value, onChange, onSend, onStop, streaming, useRag, onToggleRag, documentCount },
+  {
+    value,
+    onChange,
+    onSend,
+    onStop,
+    streaming,
+    useRag,
+    onToggleRag,
+    agentMode,
+    onToggleAgent,
+    documentCount,
+  },
   ref,
 ) {
   const inputRef = useRef(null)
@@ -67,23 +78,43 @@ const Composer = forwardRef(function Composer(
     <div className="composer">
       <div className="composer__box glass">
         <button
-          className={`ragbtn ${useRag ? 'ragbtn--on' : ''}`}
-          onClick={onToggleRag}
+          className={`ragbtn ${agentMode ? 'ragbtn--on' : ''}`}
+          onClick={onToggleAgent}
           role="switch"
-          aria-checked={useRag}
-          aria-label="Use documents"
-          title={ragTitle}
+          aria-checked={agentMode}
+          aria-label="Agent mode"
+          title={
+            agentMode
+              ? 'Agent on: reasons over claims, asks when the documents fall short'
+              : 'Agent off: plain chat'
+          }
+          disabled={streaming}
         >
-          <Icon name="book" size={18} />
-          {useRag && documentCount > 0 && <span className="ragbtn__count">{documentCount}</span>}
+          <Icon name="cpu" size={18} />
         </button>
+
+        {/* The agent always searches the documents, so the switch would only
+            mislead while it is on. */}
+        {!agentMode && (
+          <button
+            className={`ragbtn ${useRag ? 'ragbtn--on' : ''}`}
+            onClick={onToggleRag}
+            role="switch"
+            aria-checked={useRag}
+            aria-label="Use documents"
+            title={ragTitle}
+          >
+            <Icon name="book" size={18} />
+            {useRag && documentCount > 0 && <span className="ragbtn__count">{documentCount}</span>}
+          </button>
+        )}
 
         <textarea
           ref={inputRef}
           className="composer__input"
           rows={1}
           value={value}
-          placeholder="Message…"
+          placeholder={agentMode ? 'Ask the agent…' : 'Message…'}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={streaming}

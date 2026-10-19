@@ -53,7 +53,7 @@ class TextBlock:
 @dataclass
 class LoadedDocument:
     title: str
-    source_type: str  # pdf | text | html | url
+    source_type: str  # pdf | text | html | url | note
     blocks: list[TextBlock] = field(default_factory=list)
     url: str | None = None
 

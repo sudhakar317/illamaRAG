@@ -15,8 +15,11 @@ export default function ChatWindow({
   thinkingText,
   streamSources,
   streamPhase,
+  streamTrace,
   streaming,
   onSuggest,
+  onAnswer,
+  onProposal,
 }) {
   const endRef = useRef(null)
   const scrollRef = useRef(null)
@@ -34,7 +37,7 @@ export default function ChatWindow({
     if (pinnedRef.current) {
       endRef.current?.scrollIntoView({ block: 'end' })
     }
-  }, [messages, streamText, thinkingText, streamSources, streamPhase])
+  }, [messages, streamText, thinkingText, streamSources, streamPhase, streamTrace])
 
   // A newly opened conversation always starts at its latest message.
   useEffect(() => {
@@ -75,6 +78,12 @@ export default function ChatWindow({
             role={m.role}
             content={m.content}
             sources={m.sources}
+            trace={m.trace}
+            questions={m.questions}
+            proposals={m.proposals}
+            busy={streaming}
+            onAnswer={(answers) => onAnswer(m, answers)}
+            onProposal={(proposalId, action, edits) => onProposal(m.id, proposalId, action, edits)}
           />
         ))}
 
@@ -86,6 +95,7 @@ export default function ChatWindow({
             thinking={thinkingText}
             sources={streamSources}
             phase={streamPhase}
+            trace={streamTrace}
             streaming
           />
         )}

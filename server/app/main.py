@@ -13,10 +13,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.agent.store import init_agent_db
 from app.core import llm, memory
 from app.db import repository as repo
 from app.db.database import init_db
-from app.rag import embedder, events, store
+from app.rag import embedder, events, ingest, store
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,6 +31,9 @@ logger = logging.getLogger("illamarag")
 async def lifespan(app: FastAPI):
     init_db()
     store.init_rag_db()
+    init_agent_db()
+    # Orphan vectors out, missing ones re-embedded in the background.
+    ingest.repair_index()
     # Lets Ctrl+C end open document event streams instead of waiting on them.
     events.install_signal_hook()
 
@@ -66,6 +70,7 @@ app.add_middleware(
 )
 
 # Imported after `app` exists purely to keep the import graph obvious.
+from app.api.agent import router as agent_router  # noqa: E402
 from app.api.chat import router as chat_router  # noqa: E402
 from app.api.documents import router as documents_router  # noqa: E402
 from app.api.sessions import router as sessions_router  # noqa: E402
@@ -73,6 +78,7 @@ from app.api.sessions import router as sessions_router  # noqa: E402
 app.include_router(sessions_router)
 app.include_router(chat_router)
 app.include_router(documents_router)
+app.include_router(agent_router)
 
 
 @app.get("/api/health", tags=["health"])

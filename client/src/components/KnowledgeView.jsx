@@ -4,7 +4,7 @@ import Icon from './Icon'
 
 const ACCEPT = '.pdf,.txt,.md,.markdown,.html,.htm'
 
-const TYPE_ICON = { pdf: 'file', text: 'file', html: 'globe', url: 'link' }
+const TYPE_ICON = { pdf: 'file', text: 'file', html: 'globe', url: 'link', note: 'edit' }
 
 const isWorking = (d) => d.status === 'indexing' || d.status === 'pending'
 

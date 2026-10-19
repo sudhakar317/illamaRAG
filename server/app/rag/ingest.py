@@ -14,10 +14,11 @@ from pathlib import Path
 
 from app.config import settings
 from app.rag import embedder, events, store
-from app.rag.chunker import chunk_document, contextualise
+from app.rag.chunker import Chunk, chunk_document, contextualise
 from app.rag.loaders import (
     LoadedDocument,
     LoaderError,
+    TextBlock,
     load_file,
     load_url,
 )
@@ -145,7 +146,75 @@ def ingest_url(url: str) -> dict:
         title=document.title or url,
         source_type="url",
         source=document.url or url,
+        origin="url",
     )
     _announce(document_id)
     _start(document_id, document)
     return store.get_document(document_id)  # type: ignore[return-value]
+
+
+def ingest_text(
+    title: str,
+    text: str,
+    *,
+    origin: str = "conversation",
+    trust: str = "user_stated",
+    source: str | None = None,
+) -> dict:
+    """Index a note written in the app rather than uploaded.
+
+    This is how something a user told the agent becomes knowledge. It goes
+    through the same chunker, embedder and events as any upload, but carries
+    its provenance, so retrieval and the UI can tell it apart from an
+    official document.
+    """
+    title = " ".join(title.split()) or "Note"
+    text = text.strip()
+    if not text:
+        raise LoaderError("The note is empty.")
+
+    document = LoadedDocument(title=title, source_type="note", blocks=[TextBlock(text=text)])
+    document_id = store.create_document(
+        title=title, source_type="note", source=source, origin=origin, trust=trust
+    )
+    _announce(document_id)
+    _start(document_id, document)
+    return store.get_document(document_id)  # type: ignore[return-value]
+
+
+def repair_index() -> None:
+    """Bring the vector index back in line with SQLite, in the background.
+
+    Orphan vectors are dropped at once; chunks missing a vector are
+    re-embedded on a worker thread, under the same lock as indexing, so a
+    startup never waits on the embedding model.
+    """
+    try:
+        missing = store.reconcile_vectors()
+    except Exception:  # noqa: BLE001 - a repair must never stop the server
+        logger.exception("Could not check the vector index")
+        return
+    if not missing:
+        return
+
+    def run() -> None:
+        with _index_lock:
+            rows = store.get_chunks(missing)
+            ids = sorted(rows)
+            for start in range(0, len(ids), EMBED_BATCH):
+                batch = [rows[i] for i in ids[start : start + EMBED_BATCH]]
+                vectors = embedder.embed_documents(
+                    [
+                        contextualise(Chunk(r.text, r.idx, r.page, r.section), r.title)
+                        for r in batch
+                    ]
+                )
+                store.get_collection().upsert(
+                    ids=[str(r.id) for r in batch],
+                    embeddings=vectors,
+                    metadatas=[{"document_id": str(r.document_id), "idx": r.idx} for r in batch],
+                )
+            logger.info("Re-embedded %d chunk(s) that had no vector.", len(ids))
+
+    logger.info("%d chunk(s) have no vector; re-embedding in the background.", len(missing))
+    threading.Thread(target=run, name="repair-index", daemon=True).start()

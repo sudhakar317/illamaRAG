@@ -110,6 +110,7 @@ def add_message(
     role: str,
     content: str,
     sources: list[dict] | None = None,
+    meta: dict | None = None,
 ) -> int:
     """Append a message and mark the session as recently active.
 
@@ -118,13 +119,14 @@ def add_message(
     """
     with get_connection() as conn:
         cursor = conn.execute(
-            "INSERT INTO messages (session_id, role, content, sources) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO messages (session_id, role, content, sources, meta) "
+            "VALUES (?, ?, ?, ?, ?)",
             (
                 session_id,
                 role,
                 content,
                 json.dumps(sources) if sources else None,
+                json.dumps(meta) if meta else None,
             ),
         )
         conn.execute(
@@ -137,7 +139,7 @@ def add_message(
 def get_messages(session_id: str, include_system: bool = False) -> list[dict]:
     """The full transcript, oldest first, with citations decoded."""
     sql = (
-        "SELECT id, role, content, sources, created_at "
+        "SELECT id, role, content, sources, meta, created_at "
         "FROM messages WHERE session_id = ?"
     )
     if not include_system:
@@ -155,6 +157,11 @@ def get_messages(session_id: str, include_system: bool = False) -> list[dict]:
             message["sources"] = json.loads(raw) if raw else None
         except (TypeError, ValueError):
             message["sources"] = None
+        raw_meta = message.pop("meta", None)
+        try:
+            message["meta"] = json.loads(raw_meta) if raw_meta else None
+        except (TypeError, ValueError):
+            message["meta"] = None
         messages.append(message)
     return messages
 
